@@ -298,7 +298,7 @@ int main()
 	sf::Sound sound_click(buffer_click);
 
 	//Render the main window
-	sf::RenderWindow window( sf::VideoMode( { 1280, 720 } ), "SFML works!" , sf::Style::Titlebar | sf::Style::Close );
+	sf::RenderWindow window( sf::VideoMode( { 1280, 720 } ), "Osu-Clone" , sf::Style::Titlebar | sf::Style::Close );
     window.setFramerateLimit(60);
 
 	//Hide mouse cursor
