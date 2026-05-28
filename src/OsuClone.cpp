@@ -1,6 +1,8 @@
 #include <SFML/System/Vector2.hpp>
 #include <SFML/Graphics.hpp>
 #include <SFML/Audio.hpp>
+#include <SFML/Window.hpp>
+#include <SFML/System.hpp>
 #include <iostream>
 #include <memory>
 #include <cmath>
@@ -100,17 +102,21 @@ public:
 	void draw(sf::RenderWindow& window) {
         m_testButton->draw(window);
 	}
-
-
+	
 };
 class GameMenu{
 private:
+
 	sf::RectangleShape LevelSelect;
 	sf::Text Maptext;
+	sf::Text Highscoretext;
 
 public:
 	
-	GameMenu(const sf::Font& globalfont, sf::Vector2f position, std::string MapName): LevelSelect({600.f,100.f}), Maptext(globalfont)
+	GameMenu(const sf::Font& globalfont, sf::Vector2f position, std::string MapName): 
+		LevelSelect({600.f,100.f}), 
+		Maptext(globalfont),
+		Highscoretext(globalfont)
 	{
 		LevelSelect.setFillColor(sf::Color(0, 102, 255));
 		LevelSelect.setOutlineColor(sf::Color::White);
@@ -121,11 +127,23 @@ public:
 		Maptext.setString (MapName);
 		Maptext.setCharacterSize (45.f);
 		Maptext.setFillColor(sf::Color::Black);
-		Maptext.setOrigin({300.f,50.f});
-		Maptext.setPosition({position.x + 250.f, position.y + 20.f});
+
+		Highscoretext.setCharacterSize(35);
+		Highscoretext.setFillColor(sf::Color(100,50,50));
+		Highscoretext.setStyle(sf::Text::Bold);
+		Highscoretext.setOrigin({300.f, 50.f});
+		Highscoretext.setPosition({position.x + 620.f, position.y + 10.f});
+		Highscoretext.setString("High Score: 0");
+
+		sf::FloatRect textRect = Maptext.getGlobalBounds();
+		Maptext.setOrigin({textRect.size.x / 2.0f, (textRect.size.y / 2.0f) + 15.f});
+		Maptext.setPosition({position.x, position.y});
 		
 	}
 
+	void updateHighscore(int score){
+		Highscoretext.setString("High Score: " + std::to_string(score));
+	}	
 
 	//Check if click happens in LevelSelect
 	bool LevelClicked(sf::Vector2f worldPos) {
@@ -135,19 +153,25 @@ public:
 	void draw(sf::RenderWindow& window) {
         window.draw(LevelSelect);
         window.draw(Maptext);
+		window.draw(Highscoretext);
 	}	
 };
 class Map{
 private:
 
-	std::vector<sf::CircleShape> circlesMap;
+	struct Target{
+		sf::CircleShape shape;
+		float lifetime = 0.f;
+	};
+
+	std::vector<Target> circlesMap;
 	sf::Clock clock;
 
 	//Create timer for spawning circles
 	float timeSinceLastSpawn;
 	float spawnInterval;
 	float circlesize;
-
+	float maxTargetDuration;
 
 	sf::RectangleShape PlayZone;
 
@@ -163,6 +187,8 @@ private:
 public:
 	//Load config
 	Map(float difficulty_speed, float difficulty_size, sf::RenderWindow& window) :
+		
+		maxTargetDuration(difficulty_speed + 0.2f),
 		timeSinceLastSpawn(-1.f), 
 		spawnInterval(difficulty_speed),
 		circlesize(difficulty_size),
@@ -194,6 +220,16 @@ public:
 		float dt = clock.restart().asSeconds();
 		timeSinceLastSpawn += dt;
 
+		//Remove old circles
+		for (int i = static_cast<int>(circlesMap.size()) - 1; i >= 0; --i) {
+			circlesMap[i].lifetime += dt;
+
+			if (circlesMap[i].lifetime >= maxTargetDuration) {
+                circlesMap.erase(circlesMap.begin() + i);
+				
+			}
+		}
+
 		//Circle spawner
 		if (timeSinceLastSpawn >= spawnInterval)
 		{
@@ -210,10 +246,16 @@ public:
 			float posX = boxleft + float(rand() % maxrangeX);
 			float posY = boxtop + float(rand() % maxrangeY);
 
+	
+
 			hitcircle.setPosition({posX, posY});
 
+			Target newTarget;
+            newTarget.shape = hitcircle;
+            newTarget.lifetime = 0.f;
+
 			//Store inside vector
-			circlesMap.push_back(hitcircle);
+			circlesMap.push_back(newTarget);
 
 			//Reset timer
 			timeSinceLastSpawn -= spawnInterval;
@@ -222,7 +264,7 @@ public:
 	}
 	
 	//Check for clicks (Later)
-	std::vector<sf::CircleShape>& getCircles() {
+	std::vector<Target>& getCircles() {
 		return circlesMap;
 	}	
 
@@ -230,9 +272,10 @@ public:
 	bool checkcirclehit(sf::Vector2f worldPos){
 		for(int i = static_cast<int>(circlesMap.size()) - 1; i >= 0; --i)
 		{
-			if(circlesMap[i].getGlobalBounds().contains(worldPos)){
+			if(circlesMap[i].shape.getGlobalBounds().contains(worldPos)){
 				circlesMap.erase (circlesMap.begin() + i);
 				return true;
+
 			}
 		}
 		return false;
@@ -240,8 +283,8 @@ public:
 
 	void draw(sf::RenderWindow& window) {
 		window.draw(PlayZone);
-		for (const auto& circle : circlesMap) {
-            window.draw(circle);
+		for (const auto& target : circlesMap) {
+            window.draw(target.shape);
 		}
         
 	}
@@ -278,7 +321,9 @@ int main()
 	
 	//Load main menu
     MainMenu mainMenu(globalfont);
-	//Load game menu
+
+
+	//Load game menu and level positions
 	GameMenu map1(globalfont,{640.f,100.f}, "Easy");
 	GameMenu map2(globalfont,{640.f,250.f}, "Medium");
 	GameMenu map3(globalfont,{640.f,400.f}, "Hard");
@@ -287,9 +332,16 @@ int main()
 	int selectedlevel = 0;
 	std::unique_ptr<Map> activeLevel = nullptr;
 
+
+	//Highscore
+	int highscoreEasy = 0;
+	int highscoreMed = 0;
+	int highscoreHard = 0;
 	
-	//Score
-	sf::String playerScore = "";
+	//Current score
+	int playerscore = 0;
+	sf::Text scoredisplay(globalfont);
+	scoredisplay.setCharacterSize(45.f);
 
 	//Keep window open
 	while ( window.isOpen() )
@@ -321,6 +373,8 @@ int main()
 							{
 								std::cout << "Hit! \n";
 								sound_click.play();
+								playerscore += 1;
+								scoredisplay.setString("Score: " + std::to_string(playerscore));
 							}
 						}
 					}
@@ -351,7 +405,8 @@ int main()
 						if(map1.LevelClicked(worldPos)){
 
 							sound_click.play();
-
+							playerscore = 0;
+							scoredisplay.setString("Score: 0");
 							selectedlevel = 1; 
 							activeLevel = std::make_unique<Map>(0.8f, 60.f, window);	
 							currentState = GameState::Playing;
@@ -360,7 +415,8 @@ int main()
 						else if(map2.LevelClicked(worldPos)){
 
 							sound_click.play();
-
+							playerscore = 0;
+							scoredisplay.setString("Score: 0");
 							selectedlevel = 2;
 							activeLevel = std::make_unique<Map>(0.5f, 50.f, window);
 							currentState = GameState::Playing;
@@ -369,7 +425,8 @@ int main()
 						else if(map3.LevelClicked(worldPos)){
 							
 							sound_click.play();
-
+							playerscore = 0;
+							scoredisplay.setString("Score: 0");
 							selectedlevel = 3;
 							activeLevel = std::make_unique<Map>(0.3f, 45.f, window);
 							currentState = GameState::Playing;
@@ -421,6 +478,7 @@ int main()
 		else if (currentState == GameState::Playing && activeLevel != nullptr)
 		{
 			activeLevel->update(window);
+
 		}
 
 		//Keep cursor updating
@@ -441,13 +499,35 @@ int main()
 		}
 		else if (currentState == GameState::Playing){
 
-			if (selectedlevel == 1) window.clear(sf::Color(80, 50, 20));
-			else if (selectedlevel == 2) window.clear(sf::Color(20, 80, 20));
-			else if (selectedlevel == 3) window.clear(sf::Color(50, 50, 50));
+			if (selectedlevel == 1) 
+			{
+				window.clear(sf::Color(80, 50, 20));
+				if (playerscore > highscoreEasy){
+					highscoreEasy = playerscore;
+					map1.updateHighscore(highscoreEasy);
+				}
+			}
+			else if (selectedlevel == 2) 
+			{
+				window.clear(sf::Color(20, 80, 20));
+				if (playerscore > highscoreMed){
+					highscoreMed = playerscore;
+					map2.updateHighscore(highscoreMed);
+				}
+			}
+			else if (selectedlevel == 3) 
+			{
+				window.clear(sf::Color(50, 50, 50));
+				if (playerscore > highscoreHard){
+					highscoreHard = playerscore;
+					map3.updateHighscore(highscoreHard);
+				}
+			}
 			
 			if (activeLevel != nullptr) {
-            	activeLevel->draw(window);
+            	activeLevel->draw(window);	
         	}
+			window.draw(scoredisplay);
 		}	
 			
 		window.draw(cursor);
